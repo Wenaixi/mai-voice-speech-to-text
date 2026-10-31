@@ -4,7 +4,10 @@
   "version": "0.3.0",
   "name": "麦麦QQ语音实时转写文字听力",
   "description": "通过本地或远程 SenseVoice sidecar 将 QQ 语音消息识别为文字",
-  "author": "Wenaixi",
+  "author": {
+    "name": "Wenaixi",
+    "url": "https://github.com/Wenaixi/mai-voice-speech-to-text"
+  },
   "license": "MIT",
   "urls": {
     "repository": "https://github.com/DMJXMJ/maibot-sensevoice-stt",
