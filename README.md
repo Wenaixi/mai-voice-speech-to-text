@@ -6,7 +6,7 @@
 
 将入站 QQ 语音消息通过本地/远程 SenseVoice 模型实时识别为文字供大模型阅读。
 
-- **插件目录**：`dmjxmj_sensevoice-stt`
+- **插件目录**：`wenaixi_mai_voice_speech_to_text`
 - **生效版本**：`v0.3.0`
 - **开源许可证**：`MIT`
 
