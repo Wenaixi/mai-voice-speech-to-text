@@ -1,5 +1,11 @@
 # SenseVoice STT 语音转文字
 
+[![Release](https://img.shields.io/github/v/release/Wenaixi/mai-voice-speech-to-text?style=flat-square&color=blue&label=release)](https://github.com/Wenaixi/mai-voice-speech-to-text/releases)
+[![CI](https://img.shields.io/github/actions/workflow/status/Wenaixi/mai-voice-speech-to-text/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/Wenaixi/mai-voice-speech-to-text/actions)
+[![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue?style=flat-square)](https://www.python.org/)
+[![MaiBot](https://img.shields.io/badge/MaiBot-1.2%2B-orange?style=flat-square)](https://docs.mai-mai.org)
+
 > 本插件由 [Wenaixi](https://github.com/Wenaixi) 维护，是专为生产环境深度调优的高可用分支。
 
 ## 简介与定位
@@ -7,7 +13,6 @@
 将入站 QQ 语音消息通过本地/远程 SenseVoice 模型实时识别为文字供大模型阅读。
 
 - **插件目录**：`wenaixi_mai_voice_speech_to_text`
-- **生效版本**：`v0.3.0`
 - **开源许可证**：`MIT`
 
 ---

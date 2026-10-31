@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "id": "wenaixi.mai_voice_speech_to_text",
-  "version": "0.3.0",
+  "version": "0.1.0",
   "name": "麦麦QQ语音实时转写文字听力",
   "description": "通过本地或远程 SenseVoice sidecar 将 QQ 语音消息识别为文字",
   "author": {
