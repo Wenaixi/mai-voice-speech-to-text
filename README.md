@@ -1,27 +1,42 @@
-# MaiBot SenseVoice 语音识别转文字插件 (maibot-sensevoice-stt)
+# SenseVoice STT 语音转文字
 
-基于阿里达摩院 SenseVoice 语音基础大模型的 MaiBot 离线与云端语音识别（STT）插件。支持高精度识别 QQ 群聊与私聊语音消息，具备极速多语言识别、声音事件检测（如笑声、掌声、咳嗽）与情绪感知能力。
+> 本插件由 [Wenaixi](https://github.com/Wenaixi) 维护，是专为生产环境深度调优的高可用分支。
 
-## 核心技术架构
+## 简介与定位
 
-1. 语音监听：捕获 OneBot 入站 `record` 语音消息段并拉取音频原始二进制数据。
-2. 音频预处理：内置音频转换管道，自动将 silk / amr / mp3 统一重采样转码为 16kHz 16bit 单声道 WAV 格式。
-3. 双模识别引擎：
-   - 本地/容器 Sidecar 模式：连接部署在同一网络下的 SenseVoice 独立推理服务容器。
-   - 云端高速 API 模式：支持对接 SiliconFlow、ModelScope 等兼容 OpenAI Audio 规范的第三方托管接口。
-4. 上下文合成：将语音转写文本直接注入到 MaiBot 的聊天上下文流中，使麦麦能够像阅读文字一样“听懂”语音。
+将入站 QQ 语音消息通过本地/远程 SenseVoice 模型实时识别为文字供大模型阅读。
 
-## 配置项详解
+- **插件目录**：`dmjxmj_sensevoice-stt`
+- **生效版本**：`v0.3.0`
+- **开源许可证**：`MIT`
 
-| 配置项 | 类型 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `[plugin].enabled` | bool | `true` | 是否启用语音识别插件 |
-| `[stt].backend` | string | `"sidecar"` | 推理后端类型：`"sidecar"` 或 `"cloud_api"` |
-| `[stt].api_url` | string | `"http://sensevoice:8000/v1/audio/transcriptions"` | 识别服务端点 URL |
-| `[stt].api_key` | string | `""` | 云端接口访问密钥（本地 Sidecar 留空） |
-| `[stt].language` | string | `"auto"` | 目标语言：`"auto"`、`"zh"`、`"en"`、`"ja"`、`"yue"` |
-| `[stt].timeout_seconds` | int | `20` | 单条语音转写硬超时限制（秒） |
+---
 
-## 开源协议
+## 核心特性与本地深度调优
 
-本项目采用 MIT 许可证开源，详情请参阅 [LICENSE](LICENSE)。
+- 入站消息前置拦截过滤，兼容 Silk 音频编码转换
+
+---
+
+## 指令与工具速查
+
+### 常用指令 (Command)
+- `(后台拦截处理型插件，无独立命令)`
+
+### 大模型工具 (Tool)
+- `(消息前置 Hook 自动转写，无独立工具)`
+
+---
+
+## 快速配置
+
+配置文件统一定位于插件根目录下的 `config.toml`。修改后重启或通过 WebUI 热重载即可生效。
+
+---
+
+## 上游项目与开源溯源
+
+- **原作者 / 组织**：`dmjxmj`
+- **官方原版开源仓库**：[https://github.com/dmjxmj/maibot-sensevoice-stt](https://github.com/dmjxmj/maibot-sensevoice-stt)
+- **开源协议**：`MIT`
+- **声明**：本项目遵循开源协议，特此致敬原作者的杰出贡献。本分支针对生产环境的高并发网络、个性化社交和抗风控需求进行了深度稳定性修复与定制化演进。
