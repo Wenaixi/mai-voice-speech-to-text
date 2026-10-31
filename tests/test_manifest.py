@@ -20,6 +20,7 @@ class TestManifest(unittest.TestCase):
     def test_zero_external_dependencies(self):
         """改用 SnowLuma 官方 fetch_ptt_text 接口后，零外部包依赖。"""
         self.assertEqual(self.manifest["dependencies"], [])
+        self.assertEqual(self.manifest["capabilities"], ["api.call"])
 
     def test_sidecar_dependencies_not_installed_into_maibot(self):
         dep_names = {dep.get("name") for dep in self.manifest["dependencies"]}
