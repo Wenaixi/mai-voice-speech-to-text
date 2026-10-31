@@ -1,41 +1,23 @@
-# dmjxmj sensevoice-stt
+# CLAUDE.md - SenseVoice STT 语音转文字 (dmjxmj_sensevoice-stt)
 
-## 官方上游与版本溯源
-- 官方仓库（Upstream Repository）：https://github.com/DMJXMJ/maibot-sensevoice-stt
-- 官方作者（Author / Maintainer）：DMJXMJ
-- 功能定位：SenseVoice 语音识别（STT）转文字插件
-- 本地演进定位：基于官方上游最新版本，融入本地生产环境兼容性定制与稳定性加固。
-- 本地专属定制：本地跟踪完整 sidecar 与云端端点，配置 SiliconFlow 高精度转写通道。
+## 1. 模块定位与系统职责
+- **插件标识符**：`dmjxmj_sensevoice-stt`
+- **当前生效版本**：`v0.3.0`
+- **托管仓库**：[`Wenaixi/maibot-sensevoice-stt`](https://github.com/Wenaixi/maibot-sensevoice-stt)
+- **核心定位**：将入站 QQ 语音消息通过本地/远程 SenseVoice 模型实时识别为文字供大模型阅读。
 
+## 2. 关键工程规范与配置说明
+- **配置路径**：`config.toml`（所有业务调优与鉴权参数收敛于此）；
+- **数据持久化**：优先遵循 MaiBot SDK 标准持久化规范，不直接向源码目录写入易失数据；
+- **编码与日志规范**：严格遵循 PEP 8 风格，文档与代码注释杜绝 emoji，避免虚假套话。
 
-## 插件基本信息
+## 3. 本地深度定制与稳定性修复
+入站消息前置拦截过滤，兼容 Silk 音频编码转换。
 
-- 插件 ID：`dmjxmj.sensevoice-stt`
-- 频率：low
-- 描述：硅基流动 SenseVoice STT（语音转文本）
+---
 
-## 主要功能 / 配置要点
-
-- http://localhost:50000 默认
-- 测试用
-- 3 tests
-
-## 接入依赖
-
-- MaiBot SDK 2.x（`MaiBotPlugin` 基类 + `Action`/`Command`/`HookHandler`）
-- 容器内一律用服务名（`napcat` / `core`），禁止 `127.0.0.1`
-- 配置通过 `PluginConfigBase`（Pydantic v2）
-
-## 关键日志（启动标志）
-
-插件加载时输出 `xxx 已加载`。如未加载，参考 MaiBot 启动日志 `已加载=N 失败=M 未激活=K`。
-
-## 用法
-
-由 MaiBot LLM 自主调用或通过命令触发。详见 plugin 文档或上游 README。
-
-## 历史脚注
-
-- 2026-08-15：自动生成（深度 plan B10）
-- 本仓库是主人本地副本，服务器 `/MaiBot/plugins/` 是 runtime。
-- 修改走工作流（本机改 → 本机 commit → 部署服务器 → 验证加载）。
+## 上游项目与开源溯源
+- **原作者 / 组织**：`dmjxmj`
+- **官方上游仓库**：[https://github.com/dmjxmj/maibot-sensevoice-stt](https://github.com/dmjxmj/maibot-sensevoice-stt)
+- **开源许可证**：`MIT`
+- **分支演进模式**：本仓库作为主人的深度定制与生产维护分支（`Wenaixi/maibot-sensevoice-stt`）。在保持与官方上游架构演进对齐的同时，锁死并持续维护针对本服务器生产环境的稳定性补丁与核心特性。
