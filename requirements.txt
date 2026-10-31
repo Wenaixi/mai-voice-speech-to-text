@@ -1,1 +1,1 @@
-aiohttp>=3.9.0
+# 插件已全面改用 SnowLuma 官方原生 fetch_ptt_text 接口，零外部 Python 包依赖

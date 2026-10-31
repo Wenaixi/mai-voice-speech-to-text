@@ -14,25 +14,16 @@ class TestManifest(unittest.TestCase):
             self.manifest = json.load(f)
 
     def test_version_and_type(self):
-        self.assertEqual(self.manifest["version"], "0.3.0")
+        self.assertEqual(self.manifest["version"], "0.2.0")
         self.assertEqual(self.manifest["plugin_type"], "media")
 
-    def test_declares_only_plugin_runtime_dependency(self):
-        deps = self.manifest["dependencies"]
-        self.assertEqual(
-            deps,
-            [
-                {
-                    "type": "python_package",
-                    "name": "aiohttp",
-                    "version_spec": ">=3.9.0",
-                }
-            ],
-        )
+    def test_zero_external_dependencies(self):
+        """改用 SnowLuma 官方 fetch_ptt_text 接口后，零外部包依赖。"""
+        self.assertEqual(self.manifest["dependencies"], [])
 
     def test_sidecar_dependencies_not_installed_into_maibot(self):
         dep_names = {dep.get("name") for dep in self.manifest["dependencies"]}
-        self.assertFalse({"torch", "torchaudio", "funasr", "modelscope"} & dep_names)
+        self.assertFalse({"torch", "torchaudio", "funasr", "modelscope", "aiohttp"} & dep_names)
 
 
 if __name__ == "__main__":

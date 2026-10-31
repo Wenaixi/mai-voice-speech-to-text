@@ -1,10 +1,10 @@
-"""SenseVoice STT 插件 — 将 QQ 语音消息转录为文字。
+"""SnowLuma STT 插件 — 将入站 QQ 语音消息转换为文字。
 
-通过 ``@HookHandler("chat.receive.before_process")`` 在消息到达 LLM 之前
-拦截语音段，调用本地或远程 SenseVoice sidecar 转录，原地替换为文本段，
-并重建 ``processed_plain_text``。
+通过 HookHandler 监听 chat.receive.before_process 事件，在消息到达 LLM 处理前
+拦截语音消息段，调用 SnowLuma / OneBot 官方原生 fetch_ptt_text 接口转录，
+将识别结果原地替换为文本段并重建 processed_plain_text。
 
-纯本地方案：不依赖任何第三方云 API。
+原生官方方案：免去外部云模型和本地 sidecar 容器，直接复用官方语音转文字能力。
 """
 
 from __future__ import annotations
@@ -16,21 +16,20 @@ from typing import Any
 from maibot_sdk import HomeCard, HookHandler, MaiBotPlugin
 from maibot_sdk.types import ErrorPolicy, HookMode, HookOrder
 
-from .core.audio_utils import cleanup_temp_file, decode_base64_to_wav
-from .core.config import SenseVoiceSttPluginConfig
-from .core.stt_client import HealthCheckResult, SenseVoiceClient, TranscriptionResult
+from .core.config import VoiceSttPluginConfig
+from .core.stt_client import HealthCheckResult, SnowLumaSttClient, TranscriptionResult
 
 
-class SenseVoiceSttPlugin(MaiBotPlugin):
-    """SenseVoice STT 插件主类。"""
+class VoiceSttPlugin(MaiBotPlugin):
+    """SnowLuma 语音转文字插件主类。"""
 
-    config_model = SenseVoiceSttPluginConfig
+    config_model = VoiceSttPluginConfig
 
-    _MAX_CONSECUTIVE_FAIL_LOG = 3  # 连续失败达此阈值时记 WARNING
+    _MAX_CONSECUTIVE_FAIL_LOG = 3  # 连续失败达到此阈值时记录 WARNING
 
     def __init__(self) -> None:
         super().__init__()
-        self._client: SenseVoiceClient | None = None
+        self._client: SnowLumaSttClient | None = None
         self._stats: dict[str, int] = {}
         self._started_at: float = 0.0
         self._last_error_type: str | None = None
@@ -46,37 +45,36 @@ class SenseVoiceSttPlugin(MaiBotPlugin):
         self._started_at = time.time()
         self._last_error_type = None
 
-    # ===== 生命周期（SDK 强制）=====
+    # ===== 生命周期 =====
 
     async def on_load(self) -> None:
         self._init_client()
         self._reset_stats()
         self.ctx.logger.info(
-            "SenseVoice STT 插件已加载，后端: %s",
-            self.config.stt.endpoint_url,
+            "SnowLuma STT 插件已加载，对接官方原生 fetch_ptt_text 接口"
         )
 
     async def on_unload(self) -> None:
         self._client = None
-        self.ctx.logger.info("SenseVoice STT 插件已卸载")
+        self.ctx.logger.info("SnowLuma STT 插件已卸载")
 
     async def on_config_update(
         self, scope: str, config_data: dict, version: str
     ) -> None:
         if scope == "self":
             self._init_client()
-            self.ctx.logger.info("SenseVoice STT 配置已更新 (version=%s)", version)
+            self.ctx.logger.info("SnowLuma STT 配置已更新 (version=%s)", version)
 
-    # ===== 内部 =====
+    # ===== 内部方法 =====
 
     def _init_client(self) -> None:
         if self.config.plugin.enabled:
-            self._client = SenseVoiceClient(
-                endpoint_url=self.config.stt.endpoint_url,
+            self._client = SnowLumaSttClient(
+                ctx=self.ctx,
                 timeout=self.config.stt.timeout_seconds,
-                language=self.config.stt.language,
-                api_key=self.config.stt.api_key,
-                model=self.config.stt.model,
+                max_retries=self.config.stt.max_retries,
+                retry_interval=self.config.stt.retry_interval,
+                adapter_namespace=self.config.stt.adapter_namespace,
             )
         else:
             self._client = None
@@ -93,7 +91,7 @@ class SenseVoiceSttPlugin(MaiBotPlugin):
             self._last_error_type = result.error_type or "unknown"
             if self._stats["consecutive_failures"] == self._MAX_CONSECUTIVE_FAIL_LOG:
                 self.ctx.logger.warning(
-                    "SenseVoice STT 连续失败 %d 次 (type=%s)",
+                    "SnowLuma STT 连续失败 %d 次 (原因: %s)",
                     self._stats["consecutive_failures"],
                     result.error_type,
                 )
@@ -101,17 +99,17 @@ class SenseVoiceSttPlugin(MaiBotPlugin):
     def _uptime_hours(self) -> float:
         return (time.time() - self._started_at) / 3600.0
 
-    async def _check_sidecar_health(self) -> HealthCheckResult:
+    async def _check_service_health(self) -> HealthCheckResult:
         if not self._client:
             return HealthCheckResult.fail("disabled", "disabled")
         return await self._client.check_health()
 
-    # ===== HookHandler =====
+    # ===== 消息拦截钩子 =====
 
     @HookHandler(
         "chat.receive.before_process",
-        name="sensevoice_stt_transcriber",
-        description="将语音消息段转录为文字",
+        name="snowluma_stt_transcriber",
+        description="将入站语音消息段转录为文字",
         mode=HookMode.BLOCKING,
         order=HookOrder.EARLY,
         timeout_ms=30000,
@@ -120,96 +118,65 @@ class SenseVoiceSttPlugin(MaiBotPlugin):
     async def transcribe_voice_segments(
         self, message: dict[str, Any] | None = None, **kwargs: Any
     ) -> dict[str, Any] | None:
-        """拦截入站消息，将 voice 段转录为 text 段。
-
-        Hook 参数由 ``chat.receive.before_process`` 注入，
-        ``message`` 包含 ``raw_message``（段列表）和
-        ``processed_plain_text``（纯文本表示）。
-        """
+        """拦截入站消息，提取 message_id 并通过 fetch_ptt_text 将 voice 段转录为 text 段。"""
         if not self._client or not message:
             return None
         raw = message.get("raw_message")
         if not isinstance(raw, list):
             return None
 
-        modified = False
-        voice_count = 0
-        transcribed_count = 0
-        runtime_dir = self.ctx.paths.runtime_dir
+        # 检查是否包含语音消息段
+        voice_segments = [
+            seg for seg in raw if isinstance(seg, dict) and seg.get("type") == "voice"
+        ]
+        if not voice_segments:
+            return None
 
-        # ---- 收集语音段 ----
-        voice_tasks: list[tuple[int, dict[str, Any], str]] = []
-        for i, seg in enumerate(raw):
-            if not isinstance(seg, dict) or seg.get("type") != "voice":
-                continue
-            voice_count += 1
-            b64 = seg.get("binary_data_base64", "")
-            if not b64:
-                self.ctx.logger.warning(
-                    "SenseVoice STT 跳过 voice 段: missing_binary_data"
-                )
-                continue
-            tmp = decode_base64_to_wav(b64, runtime_dir)
-            voice_tasks.append((i, seg, tmp))
+        message_id = message.get("message_id")
+        if message_id is None or str(message_id).strip() == "":
+            self.ctx.logger.warning("SnowLuma STT 跳过语音消息: 入站消息缺少 message_id")
+            return None
 
-        async def _transcribe_one(idx: int, seg: dict, tmp: str):
-            try:
-                result = await self._client.transcribe(tmp)
-                return idx, seg, result
-            finally:
-                cleanup_temp_file(tmp)
+        # 调用 SnowLuma 官方 fetch_ptt_text 原生接口
+        result = await self._client.transcribe(message_id)
+        self._record_transcription(result)
 
-        if voice_tasks:
-            # 单段直达；多段并发
-            if len(voice_tasks) == 1:
-                outcomes = [await _transcribe_one(*voice_tasks[0])]
-            else:
-                outcomes = await asyncio.gather(
-                    *[_transcribe_one(i, s, t) for i, s, t in voice_tasks]
-                )
-
-            for idx, seg, result in outcomes:
-                self._record_transcription(result)
-                if result.success:
-                    seg.clear()
-                    seg["type"] = "text"
-                    seg["data"] = f"[voice]{result.text}"  # 直接加前缀
-                    modified = True
-                    transcribed_count += 1
-                    self.ctx.logger.info(
-                        "SenseVoice STT 转录成功: text_length=%d",
-                        len(result.text),
-                    )
-                else:
-                    self.ctx.logger.warning(
-                        "SenseVoice STT 转录失败: error=%s attempt=%d",
-                        result.error_type,
-                        result.attempt,
-                    )
-
-        if modified:
-            rebuilt_text = rebuild_plain_text(raw)
-            message["processed_plain_text"] = rebuilt_text
-            message["display_message"] = rebuilt_text
-            self.ctx.logger.info(
-                "SenseVoice STT 已更新消息: voice_segments=%d transcribed=%d, text=%s",
-                voice_count,
-                transcribed_count,
-                rebuilt_text[:100],  # 只打印前100字符
+        if not result.success or not result.text:
+            self.ctx.logger.warning(
+                "SnowLuma STT 识别失败或无文本: message_id=%s error=%s attempt=%d",
+                message_id,
+                result.error_type,
+                result.attempt,
             )
-            return {"action": "continue", "modified_kwargs": {"message": message}}
+            return None
 
-        return None
+        # 原地替换所有语音段为转写文本
+        for seg in voice_segments:
+            seg.clear()
+            seg["type"] = "text"
+            seg["data"] = f"[voice]{result.text}"
 
-    # ===== HomeCard =====
+        rebuilt_text = rebuild_plain_text(raw)
+        message["processed_plain_text"] = rebuilt_text
+        message["display_message"] = rebuilt_text
+
+        self.ctx.logger.info(
+            "SnowLuma STT 转写成功: message_id=%s 文本长度=%d 识别文本=%s",
+            message_id,
+            len(result.text),
+            result.text[:60],
+        )
+        return {"action": "continue", "modified_kwargs": {"message": message}}
+
+    # ===== 状态卡片展示 =====
 
     @HomeCard(
-        name="sensevoice_stt_status",
+        name="voice_stt_status",
         title="语音转文字状态",
-        description="SenseVoice STT 插件运行状态与统计",
-        content="查看插件启用状态、后端健康和转录统计。",
-        icon="\U0001F399",
-        link_url="/plugin-config?plugin=dmjxmj.sensevoice-stt",
+        description="SnowLuma 官方语音转文字运行状态与统计",
+        content="查看插件启用状态、接口可用性与转写统计。",
+        icon="U0001F399",
+        link_url="/plugin-config?plugin=wenaixi.mai_voice_speech_to_text",
         link_label="插件配置",
         width="medium",
         order=100,
@@ -217,14 +184,13 @@ class SenseVoiceSttPlugin(MaiBotPlugin):
     async def stt_home_card(self) -> dict[str, Any]:
         s = self._stats
         enabled = "启用" if self._client else "已禁用"
-        endpoint = self.config.stt.endpoint_url
         if self._client:
-            health = await self._check_sidecar_health()
-            sidecar_status = (
+            health = await self._check_service_health()
+            service_status = (
                 health.status if health.ok else f"{health.status}/{health.error_type}"
             )
         else:
-            sidecar_status = "未启用"
+            service_status = "未启用"
         uptime_h = self._uptime_hours()
         rate_str = ""
         if s["total_requests"] > 0:
@@ -239,11 +205,11 @@ class SenseVoiceSttPlugin(MaiBotPlugin):
                     "type": "key_value",
                     "entries": {
                         "插件状态": enabled,
-                        "后端健康": sidecar_status,
-                        "Endpoint": endpoint,
+                        "接口健康": service_status,
+                        "驱动方式": "SnowLuma 官方 fetch_ptt_text",
                         "运行时间": f"{uptime_h:.1f}h",
-                        "总请求": str(s["total_requests"]),
-                        "成功率": rate_str,
+                        "总请求数": str(s["total_requests"]),
+                        "识别成功率": rate_str,
                         "连续失败": str(s["consecutive_failures"]),
                         "最近错误": self._last_error_type or "无",
                     },
@@ -251,10 +217,10 @@ class SenseVoiceSttPlugin(MaiBotPlugin):
                 {
                     "type": "list",
                     "items": [
-                        "硅基流动 API: https://api.siliconflow.cn/v1/audio/transcriptions",
-                        "模型: FunAudioLLM/SenseVoiceSmall",
+                        "直连协议端: adapter.snowluma.action.call / adapter.napcat.action.call",
+                        "原生动作: fetch_ptt_text（复用 QQ 官方原生语音识别能力，免外部 API）",
                     ],
-                }
+                },
             ]
         }
 
@@ -262,8 +228,7 @@ class SenseVoiceSttPlugin(MaiBotPlugin):
 def rebuild_plain_text(segments: list[dict[str, Any]]) -> str:
     """从段列表重建纯文本表示。
 
-    与 ``adapter/codecs/inbound/text.py:build_plain_text`` 逻辑对齐，
-    确保 LLM 收到的文本格式一致。
+    与适配器入站解码器逻辑对齐，保证 LLM 收到的文本格式统一。
     """
     parts: list[str] = []
     for seg in segments:
@@ -273,10 +238,9 @@ def rebuild_plain_text(segments: list[dict[str, Any]]) -> str:
         if t == "text":
             parts.append(str(seg.get("data", "")))
         elif t == "voice":
-            # 转录时已加前缀，这里只处理未转录的
             transcribed = seg.get("data", "")
             if transcribed:
-                parts.append(transcribed)  # 直接用，已带前缀
+                parts.append(transcribed)
             else:
                 parts.append("[voice]")
         elif t == "image":
@@ -287,6 +251,10 @@ def rebuild_plain_text(segments: list[dict[str, Any]]) -> str:
     return text or "[unsupported]"
 
 
-def create_plugin() -> SenseVoiceSttPlugin:
-    """MaiBot 插件入口工厂函数（SDK 强制要求）。"""
-    return SenseVoiceSttPlugin()
+# 向后兼容导出别名
+SenseVoiceSttPlugin = VoiceSttPlugin
+
+
+def create_plugin() -> VoiceSttPlugin:
+    """MaiBot 插件入口工厂函数（SDK 规范强制要求）。"""
+    return VoiceSttPlugin()

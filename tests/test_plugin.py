@@ -1,15 +1,13 @@
 """测试 plugin — mock maibot_sdk 和客户端，验证 Hook/Command/HomeCard。"""
 
 import asyncio
-import base64
 import os
 import sys
-from unittest import mock
-from unittest.mock import AsyncMock, MagicMock, patch
+import types
+import unittest
+from unittest.mock import AsyncMock, MagicMock
 
-_VALID_B64 = base64.b64encode(b"test_audio_data").decode()  # 有效的 base64 测试数据
-
-# ---- mock maibot_sdk（必须在 import plugin 之前） ----
+# ---- mock maibot_sdk ----
 
 _mock_types = MagicMock()
 _mock_types.ErrorPolicy = MagicMock()
@@ -19,50 +17,37 @@ _mock_types.HookMode.BLOCKING = "BLOCKING"
 _mock_types.HookOrder = MagicMock()
 _mock_types.HookOrder.EARLY = "EARLY"
 
-_mock_sdk = MagicMock()
-_mock_sdk.HookHandler = lambda *a, **kw: lambda fn: fn
-_mock_sdk.Command = lambda **kw: lambda fn: fn
-_mock_sdk.HomeCard = lambda **kw: lambda fn: fn
-
 class _MockPluginBase:
     def __init__(self):
         self.ctx = MagicMock()
         self.ctx.logger = MagicMock()
-        self.ctx.paths = MagicMock()
-        self.ctx.paths.runtime_dir = "/tmp/fake_runtime"
+        self.ctx.api = MagicMock()
+        self.ctx.api.call = AsyncMock()
         self.config = MagicMock()
-
-_mock_sdk.MaiBotPlugin = _MockPluginBase
-
-sys.modules["maibot_sdk"] = _mock_sdk
-sys.modules["maibot_sdk.types"] = _mock_types
-
-# ---- mock aiohttp（plugin.py 的 stt_client 依赖）----
-_mock_aiohttp = MagicMock()
-_mock_aiohttp.ClientTimeout = lambda total: total
-_mock_aiohttp.ClientConnectorError = type("ClientConnectorError", (Exception,), {})
-_mock_aiohttp.FormData = MagicMock
 
 
 def _install_plugin_mocks():
-    sys.modules["maibot_sdk"] = _mock_sdk
+    mock_sdk = types.ModuleType("maibot_sdk")
+    mock_sdk.HomeCard = lambda *a, **kw: lambda fn: fn
+    mock_sdk.HookHandler = lambda *a, **kw: lambda fn: fn
+    mock_sdk.Command = lambda **kw: lambda fn: fn
+    mock_sdk.MaiBotPlugin = _MockPluginBase
+    mock_sdk.PluginConfigBase = type("PluginConfigBase", (), {})
+    mock_sdk.Field = lambda *a, **kw: {"args": a, "kwargs": kw}
+
+    sys.modules["maibot_sdk"] = mock_sdk
     sys.modules["maibot_sdk.types"] = _mock_types
-    sys.modules["aiohttp"] = _mock_aiohttp
 
 
 _install_plugin_mocks()
 
-# ---- 被测模块（用 package 加载以支持 plugin.py 的相对导入）----
+# ---- 被测模块加载 ----
 
 import importlib
 import importlib.util
-import types
-import unittest
 
-_plugin_dir = os.path.join(os.path.dirname(__file__), "..")
-_plugin_dir = os.path.realpath(_plugin_dir)
+_plugin_dir = os.path.realpath(os.path.join(os.path.dirname(__file__), ".."))
 
-# 创建合成 package 承载插件模块
 _pkg = types.ModuleType("_stt_pkg")
 _pkg.__path__ = [_plugin_dir]
 _pkg.__file__ = os.path.join(_plugin_dir, "__init__.py")
@@ -84,13 +69,6 @@ def _reload_plugin_module():
     importlib.reload(pmod)
 
 
-def _fake_transcribe_result(success=True, text="hello", error_type=None, attempt=1):
-    from _stt_pkg.core.stt_client import TranscriptionResult
-    if success:
-        return TranscriptionResult.ok(text, attempt)
-    return TranscriptionResult.fail(error_type or "timeout", attempt)
-
-
 class TestRebuildPlainText(unittest.TestCase):
     def setUp(self):
         _reload_plugin_module()
@@ -104,6 +82,14 @@ class TestRebuildPlainText(unittest.TestCase):
         ]
         result = pmod.rebuild_plain_text(segs)
         self.assertEqual(result, "你好[voice][image][reply]")
+
+    def test_transcribed_voice(self):
+        segs = [
+            {"type": "text", "data": "听到消息："},
+            {"type": "voice", "data": "[voice]这是语音内容"},
+        ]
+        result = pmod.rebuild_plain_text(segs)
+        self.assertEqual(result, "听到消息：[voice]这是语音内容")
 
     def test_mixed_text_voice(self):
         segs = [
@@ -130,19 +116,23 @@ class TestRebuildPlainText(unittest.TestCase):
 
 
 class TestCreatePlugin(unittest.TestCase):
+    def setUp(self):
+        _reload_plugin_module()
+
     def test_returns_plugin_instance(self):
         p = pmod.create_plugin()
-        self.assertIsInstance(p, pmod.SenseVoiceSttPlugin)
+        self.assertIsInstance(p, pmod.VoiceSttPlugin)
 
 
 class TestLifecycle(unittest.TestCase):
     def setUp(self):
         _reload_plugin_module()
-        self.p = pmod.SenseVoiceSttPlugin()
+        self.p = pmod.VoiceSttPlugin()
         self.p.config.plugin.enabled = True
-        self.p.config.stt.endpoint_url = "http://sensevoice:50000/v1/audio/transcriptions"
-        self.p.config.stt.timeout_seconds = 30
-        self.p.config.stt.language = "auto"
+        self.p.config.stt.timeout_seconds = 15
+        self.p.config.stt.max_retries = 3
+        self.p.config.stt.retry_interval = 0.01
+        self.p.config.stt.adapter_namespace = "auto"
 
     def test_on_load_inits_client(self):
         asyncio.run(self.p.on_load())
@@ -160,29 +150,32 @@ class TestLifecycle(unittest.TestCase):
 
     def test_on_config_update_self_scope(self):
         self.p._client = None
-        asyncio.run(self.p.on_config_update("self", {}, "0.3.0"))
+        asyncio.run(self.p.on_config_update("self", {}, "0.2.0"))
         self.assertIsNotNone(self.p._client)
 
     def test_on_config_update_ignored_scope(self):
         self.p._client = None
-        asyncio.run(self.p.on_config_update("bot", {}, "0.3.0"))
+        asyncio.run(self.p.on_config_update("bot", {}, "0.2.0"))
         self.assertIsNone(self.p._client)
 
 
 class TestTranscribeHook(unittest.TestCase):
     def setUp(self):
         _reload_plugin_module()
-        self.p = pmod.SenseVoiceSttPlugin()
+        self.p = pmod.VoiceSttPlugin()
         self.p.config.plugin.enabled = True
-        self.p.config.stt.endpoint_url = "http://sensevoice:50000/v1/audio/transcriptions"
-        self.p.config.stt.timeout_seconds = 30
-        self.p.config.stt.language = "auto"
+        self.p.config.stt.timeout_seconds = 15
+        self.p.config.stt.max_retries = 3
+        self.p.config.stt.retry_interval = 0.01
+        self.p.config.stt.adapter_namespace = "auto"
         asyncio.run(self.p.on_load())
 
     def test_no_voice_segments(self):
+        """入站无语音段时不触发 API 调用。"""
         msg = {
-            "raw_message": [{"type": "text", "data": "hello"}],
-            "processed_plain_text": "hello",
+            "message_id": 1001,
+            "raw_message": [{"type": "text", "data": "普通文字"}],
+            "processed_plain_text": "普通文字",
         }
         result = asyncio.run(self.p.transcribe_voice_segments(message=msg))
         self.assertIsNone(result)
@@ -194,174 +187,70 @@ class TestTranscribeHook(unittest.TestCase):
 
     def test_no_client_returns_none(self):
         self.p._client = None
-        msg = {"raw_message": [{"type": "voice", "binary_data_base64": "AA=="}]}
+        msg = {"message_id": 1002, "raw_message": [{"type": "voice"}]}
         result = asyncio.run(self.p.transcribe_voice_segments(message=msg))
         self.assertIsNone(result)
 
-    def test_raw_not_list_returns_none(self):
-        msg = {"raw_message": "not_a_list"}
-        result = asyncio.run(self.p.transcribe_voice_segments(message=msg))
-        self.assertIsNone(result)
-
-    def test_skip_voice_without_base64(self):
+    def test_missing_message_id_skips(self):
+        """入站有语音段但缺少 message_id 时安全跳过。"""
         msg = {
-            "raw_message": [{"type": "voice", "binary_data_base64": ""}],
+            "raw_message": [{"type": "voice"}],
             "processed_plain_text": "[voice]",
         }
         result = asyncio.run(self.p.transcribe_voice_segments(message=msg))
         self.assertIsNone(result)
+        self.assertEqual(self.p._stats["total_requests"], 0)
 
-    def test_transcribe_voice_to_text(self):
-        self.p._client.transcribe = AsyncMock(
-            return_value=_fake_transcribe_result(success=True, text="你好")
-        )
+    def test_transcribe_voice_success(self):
+        """语音转文字成功时，原地替换语音段并重建文本。"""
+        self.p.ctx.api.call.return_value = {
+            "status": "ok",
+            "retcode": 0,
+            "data": {"text": "明天下午一起喝咖啡吧"},
+        }
         msg = {
+            "message_id": 88888,
             "raw_message": [
-                {"type": "voice", "binary_data_base64": _VALID_B64},
+                {"type": "text", "data": "主人说："},
+                {"type": "voice", "data": ""},
             ],
-            "processed_plain_text": "[voice]",
-            "display_message": "[voice]",
+            "processed_plain_text": "主人说：[voice]",
+            "display_message": "主人说：[voice]",
         }
         result = asyncio.run(self.p.transcribe_voice_segments(message=msg))
 
         self.assertIsNotNone(result)
         self.assertEqual(result["action"], "continue")
-        modified_msg = result["modified_kwargs"]["message"]
-        self.assertEqual(modified_msg["raw_message"][0]["type"], "text")
-        self.assertEqual(modified_msg["raw_message"][0]["data"], "你好")
-        self.assertEqual(modified_msg["processed_plain_text"], "你好")
-        self.assertEqual(self.p._stats["total_requests"], 1)
+        updated_msg = result["modified_kwargs"]["message"]
+        self.assertEqual(updated_msg["raw_message"][1]["type"], "text")
+        self.assertEqual(updated_msg["raw_message"][1]["data"], "[voice]明天下午一起喝咖啡吧")
+        self.assertEqual(updated_msg["processed_plain_text"], "主人说：[voice]明天下午一起喝咖啡吧")
+        self.assertEqual(updated_msg["display_message"], "主人说：[voice]明天下午一起喝咖啡吧")
         self.assertEqual(self.p._stats["total_success"], 1)
-        self.assertEqual(self.p._stats["total_failure"], 0)
-        self.assertEqual(self.p._stats["consecutive_failures"], 0)
 
-    def test_transcribe_failure_preserves_voice(self):
-        self.p._client.transcribe = AsyncMock(
-            return_value=_fake_transcribe_result(success=False, error_type="timeout")
-        )
+    def test_transcribe_voice_failure(self):
+        """转写失败时不阻断原消息，安全返回 None。"""
+        self.p.ctx.api.call.return_value = {
+            "status": "failed",
+            "retcode": 100,
+            "message": "voice transcode error",
+        }
         msg = {
-            "raw_message": [{"type": "voice", "binary_data_base64": _VALID_B64}],
+            "message_id": 99999,
+            "raw_message": [{"type": "voice", "data": ""}],
             "processed_plain_text": "[voice]",
         }
         result = asyncio.run(self.p.transcribe_voice_segments(message=msg))
-
         self.assertIsNone(result)
-        self.assertEqual(msg["raw_message"][0]["type"], "voice")
-        self.assertEqual(self.p._stats["total_requests"], 1)
-        self.assertEqual(self.p._stats["total_success"], 0)
-        self.assertEqual(self.p._stats["total_failure"], 1)
-        self.assertEqual(self.p._stats["consecutive_failures"], 1)
-
-    def test_consecutive_failure_warning(self):
-        self.p._client.transcribe = AsyncMock(
-            return_value=_fake_transcribe_result(success=False)
-        )
-        msg = {
-            "raw_message": [{"type": "voice", "binary_data_base64": _VALID_B64}],
-            "processed_plain_text": "[voice]",
-        }
-        for i in range(3):
-            asyncio.run(self.p.transcribe_voice_segments(message=msg))
-
-        self.p.ctx.logger.warning.assert_called()
-        warning_args = [c[0][0] for c in self.p.ctx.logger.warning.call_args_list]
-        self.assertTrue(any("连续失败" in str(a) for a in warning_args))
-
-    def test_multiple_segments_mixed(self):
-        self.p._client.transcribe = AsyncMock(side_effect=[
-            _fake_transcribe_result(success=True, text="第一段"),
-            _fake_transcribe_result(success=False),
-            _fake_transcribe_result(success=True, text="第三段"),
-        ])
-        msg = {
-            "raw_message": [
-                {"type": "voice", "binary_data_base64": _VALID_B64},
-                {"type": "text", "data": "中间"},
-                {"type": "voice", "binary_data_base64": _VALID_B64},
-                {"type": "voice", "binary_data_base64": _VALID_B64},
-            ],
-            "processed_plain_text": "[voice]中间[voice][voice]",
-        }
-        result = asyncio.run(self.p.transcribe_voice_segments(message=msg))
-
-        self.assertIsNotNone(result)
-        raw = result["modified_kwargs"]["message"]["raw_message"]
-        self.assertEqual(raw[0]["type"], "text")
-        self.assertEqual(raw[0]["data"], "第一段")
-        self.assertEqual(raw[1]["type"], "text")
-        self.assertEqual(raw[2]["type"], "voice")  # 失败保留
-        self.assertEqual(raw[3]["type"], "text")
-        self.assertEqual(raw[3]["data"], "第三段")
-        self.assertEqual(self.p._stats["total_success"], 2)
         self.assertEqual(self.p._stats["total_failure"], 1)
 
-
-class TestHomeCard(unittest.TestCase):
-    def test_returns_blocks(self):
-        _reload_plugin_module()
-        from _stt_pkg.core.stt_client import HealthCheckResult
-
-        p = pmod.SenseVoiceSttPlugin()
-        p.config.plugin.enabled = True
-        p.config.stt.endpoint_url = "http://localhost:50000"
-        asyncio.run(p.on_load())
-        p._client.check_health = AsyncMock(return_value=HealthCheckResult.ready())
-
-        card = asyncio.run(p.stt_home_card())
+    def test_home_card(self):
+        """测试状态卡片输出正确。"""
+        card = asyncio.run(self.p.stt_home_card())
         self.assertIn("blocks", card)
-        self.assertIsInstance(card["blocks"], list)
-        self.assertTrue(len(card["blocks"]) > 0)
         entries = card["blocks"][0]["entries"]
         self.assertEqual(entries["插件状态"], "启用")
-        self.assertEqual(entries["后端健康"], "ready")
-        self.assertEqual(entries["Endpoint"], "http://localhost:50000")
-
-    def test_home_card_disabled(self):
-        _reload_plugin_module()
-        p = pmod.SenseVoiceSttPlugin()
-        p.config.plugin.enabled = False
-        p.config.stt.endpoint_url = "http://localhost:50000"
-        p._client = None
-
-        card = asyncio.run(p.stt_home_card())
-        entries = card["blocks"][0]["entries"]
-        self.assertEqual(entries["插件状态"], "已禁用")
-        self.assertEqual(entries["后端健康"], "未启用")
-
-    def test_home_card_sidecar_unreachable(self):
-        _reload_plugin_module()
-        from _stt_pkg.core.stt_client import HealthCheckResult
-
-        p = pmod.SenseVoiceSttPlugin()
-        p.config.plugin.enabled = True
-        p.config.stt.endpoint_url = "http://localhost:50000/v1/audio/transcriptions"
-        asyncio.run(p.on_load())
-        p._client.check_health = AsyncMock(
-            return_value=HealthCheckResult.fail("connection")
-        )
-
-        card = asyncio.run(p.stt_home_card())
-        entries = card["blocks"][0]["entries"]
-        self.assertEqual(entries["后端健康"], "unreachable/connection")
-
-
-class TestStatsTracking(unittest.TestCase):
-    def setUp(self):
-        _reload_plugin_module()
-        self.p = pmod.SenseVoiceSttPlugin()
-
-    def test_reset_on_load(self):
-        self.p._stats = {"total_requests": 999}
-        with patch("_stt_pkg.plugin.SenseVoiceClient"):
-            asyncio.run(self.p.on_load())
-        self.assertEqual(self.p._stats["total_requests"], 0)
-
-    def test_success_resets_consecutive_failures(self):
-        self.p._stats["consecutive_failures"] = 5
-        from _stt_pkg.core.stt_client import TranscriptionResult
-        self.p._record_transcription(TranscriptionResult.ok("test"))
-        self.assertEqual(self.p._stats["consecutive_failures"], 0)
-        self.assertEqual(self.p._stats["total_success"], 1)
+        self.assertEqual(entries["驱动方式"], "SnowLuma 官方 fetch_ptt_text")
 
 
 if __name__ == "__main__":

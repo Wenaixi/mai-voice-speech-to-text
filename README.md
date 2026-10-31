@@ -1,47 +1,34 @@
-# SenseVoice STT 语音转文字
+# 麦麦 QQ 语音实时转写文字插件
 
-[![Release](https://img.shields.io/github/v/release/Wenaixi/mai-voice-speech-to-text?style=flat-square&color=blue&label=release)](https://github.com/Wenaixi/mai-voice-speech-to-text/releases)
-[![CI](https://img.shields.io/github/actions/workflow/status/Wenaixi/mai-voice-speech-to-text/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/Wenaixi/mai-voice-speech-to-text/actions)
-[![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue?style=flat-square)](https://www.python.org/)
-[![MaiBot](https://img.shields.io/badge/MaiBot-1.2%2B-orange?style=flat-square)](https://docs.mai-mai.org)
+基于 SnowLuma / OneBot 官方原生 `fetch_ptt_text` 接口的入站语音转文字插件。
 
-> 本插件由 [Wenaixi](https://github.com/Wenaixi) 维护，是专为生产环境深度调优的高可用分支。
+## 核心特性
 
-## 简介与定位
+- 官方原生：直接复用 QQ 官方客户端的原生语音识别结果，识别准确率与手机 QQ 保持完全一致；
+- 零外部依赖：无需部署 SenseVoice、Whisper 等繁重模型，无需申请第三方云 API 或配置 API Key；
+- 零本地磁盘 I/O：直接根据 `message_id` 异步请求识别结果，不生成任何本地临时音频文件；
+- 容灾与异步轮询：自动兼容 SnowLuma 与 NapCat 命名空间，对服务端异步转写过程提供自动重试轮询。
 
-将入站 QQ 语音消息通过本地/远程 SenseVoice 模型实时识别为文字供大模型阅读。
+## 配置说明
 
-- **插件目录**：`wenaixi_mai_voice_speech_to_text`
-- **开源许可证**：`MIT`
+配置文件位于 `config.toml`：
 
----
+```toml
+[plugin]
+enabled = true
+config_version = "0.2.0"
 
-## 核心特性与本地深度调优
+[stt]
+timeout_seconds = 15     # 单次识别请求超时（秒）
+max_retries = 3          # 异步识别轮询最大重试次数
+retry_interval = 1.0     # 轮询重试等待间隔（秒）
+adapter_namespace = "auto" # 适配器命名空间 (auto / adapter.snowluma / adapter.napcat)
+```
 
-- 入站消息前置拦截过滤，兼容 Silk 音频编码转换
+## 工作机制
 
----
-
-## 指令与工具速查
-
-### 常用指令 (Command)
-- `(后台拦截处理型插件，无独立命令)`
-
-### 大模型工具 (Tool)
-- `(消息前置 Hook 自动转写，无独立工具)`
-
----
-
-## 快速配置
-
-配置文件统一定位于插件根目录下的 `config.toml`。修改后重启或通过 WebUI 热重载即可生效。
-
----
-
-## 上游项目与开源溯源
-
-- **原作者 / 组织**：`dmjxmj`
-- **官方原版开源仓库**：[https://github.com/dmjxmj/maibot-sensevoice-stt](https://github.com/dmjxmj/maibot-sensevoice-stt)
-- **开源协议**：`MIT`
-- **声明**：本项目遵循开源协议，特此致敬原作者的杰出贡献。本分支针对生产环境的高并发网络、个性化社交和抗风控需求进行了深度稳定性修复与定制化演进。
+1. 插件注册 `@HookHandler("chat.receive.before_process")` 拦截入站消息；
+2. 检测到消息段包含 `voice` 时，提取消息的 `message_id`；
+3. 通过适配器 API 总线发送动作 `fetch_ptt_text`；
+4. 识别成功后，原地将 `voice` 消息段替换为文本段 `[voice]{识别文本}`，并同步更新 `processed_plain_text` 和 `display_message`；
+5. 大模型核心直接接收到带语音文字的消息内容并进行语义理解与回复。

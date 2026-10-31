@@ -1,4 +1,4 @@
-"""SenseVoice STT 插件 — Pydantic 配置模型。"""
+"""SnowLuma STT 语音转文字插件配置模型。"""
 
 from maibot_sdk import Field, PluginConfigBase
 
@@ -16,60 +16,47 @@ class PluginSection(PluginConfigBase):
         json_schema_extra={"group": "plugin"},
     )
     config_version: str = Field(
-        default="0.3.0",
+        default="0.2.0",
         description="配置版本",
         json_schema_extra={"group": "plugin"},
     )
 
 
 class SttConfig(PluginConfigBase):
-    """STT 后端配置。"""
+    """STT 后端配置，调用 SnowLuma 官方 fetch_ptt_text 接口。"""
 
-    __ui_label__ = "SenseVoice 后端"
+    __ui_label__ = "SnowLuma 语音设置"
     __ui_icon__ = "record_voice_over"
     __ui_order__ = 10
 
-    endpoint_url: str = Field(
-        default="https://api.siliconflow.cn/v1/audio/transcriptions",
-        description=(
-            "转录接口地址。硅基流动: "
-            "https://api.siliconflow.cn/v1/audio/transcriptions"
-        ),
-        json_schema_extra={
-            "placeholder": "https://api.siliconflow.cn/v1/audio/transcriptions",
-            "group": "stt",
-        },
-    )
-    api_key: str = Field(
-        default="",
-        description="API Key（硅基流动）",
-        json_schema_extra={
-            "placeholder": "sk-xxx",
-            "group": "stt",
-        },
-    )
-    model: str = Field(
-        default="FunAudioLLM/SenseVoiceSmall",
-        description="模型名称",
-        json_schema_extra={
-            "placeholder": "FunAudioLLM/SenseVoiceSmall",
-            "group": "stt",
-        },
-    )
     timeout_seconds: int = Field(
-        default=30,
-        description="转录请求超时（秒）",
-        json_schema_extra={"placeholder": "30", "group": "stt"},
+        default=15,
+        description="单次语音识别总超时时间（秒）",
+        json_schema_extra={"placeholder": "15", "group": "stt"},
     )
-    language: str = Field(
+    max_retries: int = Field(
+        default=3,
+        description="语音识别轮询重试最大次数（针对异步转写）",
+        json_schema_extra={"placeholder": "3", "group": "stt"},
+    )
+    retry_interval: float = Field(
+        default=1.0,
+        description="语音识别轮询间隔时间（秒）",
+        json_schema_extra={"placeholder": "1.0", "group": "stt"},
+    )
+    adapter_namespace: str = Field(
         default="auto",
-        description="识别语言 (auto/zh/en/yue/ja/ko)",
+        description="适配器命名空间（auto: 自动检测；或指定 adapter.snowluma / adapter.napcat）",
         json_schema_extra={"placeholder": "auto", "group": "stt"},
     )
 
 
-class SenseVoiceSttPluginConfig(PluginConfigBase):
+class VoiceSttPluginConfig(PluginConfigBase):
     """插件根配置。"""
 
     plugin: PluginSection = Field(default_factory=PluginSection)
     stt: SttConfig = Field(default_factory=SttConfig)
+
+
+# 保持向后兼容导出别名
+SenseVoiceSttPluginConfig = VoiceSttPluginConfig

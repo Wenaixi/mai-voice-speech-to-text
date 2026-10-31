@@ -1,19 +1,19 @@
 {
   "manifest_version": 2,
   "id": "wenaixi.mai_voice_speech_to_text",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "name": "麦麦QQ语音实时转写文字听力",
-  "description": "通过本地或远程 SenseVoice sidecar 将 QQ 语音消息识别为文字",
+  "description": "基于 SnowLuma 官方 fetch_ptt_text 原生接口，免模型免外部 API 实时将 QQ 语音消息转换为文字",
   "author": {
     "name": "Wenaixi",
     "url": "https://github.com/Wenaixi/mai-voice-speech-to-text"
   },
   "license": "MIT",
   "urls": {
-    "repository": "https://github.com/DMJXMJ/maibot-sensevoice-stt",
-    "homepage": "https://github.com/DMJXMJ/maibot-sensevoice-stt#readme",
-    "documentation": "https://github.com/DMJXMJ/maibot-sensevoice-stt/blob/main/README.md",
-    "issues": "https://github.com/DMJXMJ/maibot-sensevoice-stt/issues"
+    "repository": "https://github.com/Wenaixi/mai-voice-speech-to-text",
+    "homepage": "https://github.com/Wenaixi/mai-voice-speech-to-text#readme",
+    "documentation": "https://github.com/Wenaixi/mai-voice-speech-to-text/blob/main/README.md",
+    "issues": "https://github.com/Wenaixi/mai-voice-speech-to-text/issues"
   },
   "host_application": {
     "min_version": "1.0.0",
@@ -25,13 +25,7 @@
   },
   "capabilities": [],
   "plugin_type": "media",
-  "dependencies": [
-    {
-      "type": "python_package",
-      "name": "aiohttp",
-      "version_spec": ">=3.9.0"
-    }
-  ],
+  "dependencies": [],
   "i18n": {
     "default_locale": "zh-CN",
     "supported_locales": [
