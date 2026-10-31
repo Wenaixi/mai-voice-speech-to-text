@@ -141,31 +141,35 @@ class VoiceSttPlugin(MaiBotPlugin):
         result = await self._client.transcribe(message_id)
         self._record_transcription(result)
 
-        if not result.success or not result.text:
+        if result.success and result.text and result.text.strip():
+            voice_text = f"[语音: {result.text.strip()}]"
+            self.ctx.logger.info(
+                "SnowLuma STT 转写成功: message_id=%s 文本长度=%d 识别文本=%s",
+                message_id,
+                len(result.text.strip()),
+                result.text.strip()[:60],
+            )
+        elif result.error_type == "empty_text" or (result.success and not result.text):
+            voice_text = "[语音: 无法识别到内容]"
+            self.ctx.logger.info("SnowLuma STT 识别成功但无内容: message_id=%s", message_id)
+        else:
+            voice_text = "[语音: 无法识别到文字]"
             self.ctx.logger.warning(
-                "SnowLuma STT 识别失败或无文本: message_id=%s error=%s attempt=%d",
+                "SnowLuma STT 识别失败: message_id=%s error=%s attempt=%d",
                 message_id,
                 result.error_type,
                 result.attempt,
             )
-            return None
 
-        # 原地替换所有语音段为转写文本
+        # 原地替换所有语音段为转写文本或提示标签
         for seg in voice_segments:
             seg.clear()
             seg["type"] = "text"
-            seg["data"] = f"[voice]{result.text}"
+            seg["data"] = voice_text
 
         rebuilt_text = rebuild_plain_text(raw)
         message["processed_plain_text"] = rebuilt_text
         message["display_message"] = rebuilt_text
-
-        self.ctx.logger.info(
-            "SnowLuma STT 转写成功: message_id=%s 文本长度=%d 识别文本=%s",
-            message_id,
-            len(result.text),
-            result.text[:60],
-        )
         return {"action": "continue", "modified_kwargs": {"message": message}}
 
     # ===== 状态卡片展示 =====

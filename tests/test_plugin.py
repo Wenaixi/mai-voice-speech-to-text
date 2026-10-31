@@ -223,13 +223,13 @@ class TestTranscribeHook(unittest.TestCase):
         self.assertEqual(result["action"], "continue")
         updated_msg = result["modified_kwargs"]["message"]
         self.assertEqual(updated_msg["raw_message"][1]["type"], "text")
-        self.assertEqual(updated_msg["raw_message"][1]["data"], "[voice]明天下午一起喝咖啡吧")
-        self.assertEqual(updated_msg["processed_plain_text"], "主人说：[voice]明天下午一起喝咖啡吧")
-        self.assertEqual(updated_msg["display_message"], "主人说：[voice]明天下午一起喝咖啡吧")
+        self.assertEqual(updated_msg["raw_message"][1]["data"], "[语音: 明天下午一起喝咖啡吧]")
+        self.assertEqual(updated_msg["processed_plain_text"], "主人说：[语音: 明天下午一起喝咖啡吧]")
+        self.assertEqual(updated_msg["display_message"], "主人说：[语音: 明天下午一起喝咖啡吧]")
         self.assertEqual(self.p._stats["total_success"], 1)
 
     def test_transcribe_voice_failure(self):
-        """转写失败时不阻断原消息，安全返回 None。"""
+        """转写失败时不阻断原消息，安全替换为 [语音: 无法识别到文字]。"""
         self.p.ctx.api.call.return_value = {
             "status": "failed",
             "retcode": 100,
@@ -241,7 +241,30 @@ class TestTranscribeHook(unittest.TestCase):
             "processed_plain_text": "[voice]",
         }
         result = asyncio.run(self.p.transcribe_voice_segments(message=msg))
-        self.assertIsNone(result)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["action"], "continue")
+        updated_msg = result["modified_kwargs"]["message"]
+        self.assertEqual(updated_msg["raw_message"][0]["data"], "[语音: 无法识别到文字]")
+        self.assertEqual(updated_msg["processed_plain_text"], "[语音: 无法识别到文字]")
+        self.assertEqual(self.p._stats["total_failure"], 1)
+
+    def test_transcribe_voice_empty_content(self):
+        """转写成功但无文本时，替换为 [语音: 无法识别到内容]。"""
+        self.p.ctx.api.call.return_value = {
+            "status": "ok",
+            "data": {"text": ""},
+        }
+        msg = {
+            "message_id": 99998,
+            "raw_message": [{"type": "voice", "data": ""}],
+            "processed_plain_text": "[voice]",
+        }
+        result = asyncio.run(self.p.transcribe_voice_segments(message=msg))
+        self.assertIsNotNone(result)
+        self.assertEqual(result["action"], "continue")
+        updated_msg = result["modified_kwargs"]["message"]
+        self.assertEqual(updated_msg["raw_message"][0]["data"], "[语音: 无法识别到内容]")
+        self.assertEqual(updated_msg["processed_plain_text"], "[语音: 无法识别到内容]")
         self.assertEqual(self.p._stats["total_failure"], 1)
 
     def test_home_card(self):
