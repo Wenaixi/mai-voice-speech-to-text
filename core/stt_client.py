@@ -117,7 +117,7 @@ class SenseVoiceClient:
                 if result.success:
                     result.attempt = attempt
                     return result
-                if result.error_type == "http_error":
+                if str(result.error_type or "").startswith("http_error"):
                     return result  # 非 200 不重试
             except asyncio.TimeoutError:
                 if attempt < self._MAX_RETRIES:
