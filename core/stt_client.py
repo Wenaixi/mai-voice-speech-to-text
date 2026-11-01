@@ -63,9 +63,10 @@ class SnowLumaSttClient:
     def __init__(
         self,
         ctx: Any = None,
-        timeout: float = 15.0,
-        max_retries: int = 3,
-        retry_interval: float = 1.0,
+        timeout: float = 25.0,
+        max_retries: int = 2,
+        retry_interval: float = 2.0,
+        initial_delay: float = 1.2,
         adapter_namespace: str = "auto",
         **kwargs: Any,
     ) -> None:
@@ -76,6 +77,7 @@ class SnowLumaSttClient:
             timeout: 单次语音识别整体超时时间（秒）。
             max_retries: 异步转写中的最大轮询重试次数。
             retry_interval: 轮询重试等待间隔（秒）。
+            initial_delay: 首次请求前的缓冲等待时间（秒）。
             adapter_namespace: 指定适配器命名空间 ("auto" / "adapter.snowluma" / "adapter.napcat")。
             kwargs: 吸收旧版配置传入的冗余关键字参数以保持兼容。
         """
@@ -83,6 +85,7 @@ class SnowLumaSttClient:
         self._timeout = float(timeout)
         self._max_retries = max(1, int(max_retries))
         self._retry_interval = max(0.1, float(retry_interval))
+        self._initial_delay = max(0.0, float(initial_delay))
         self._adapter_namespace = adapter_namespace.strip() or "auto"
         self._resolved_namespace: Optional[str] = (
             None if self._adapter_namespace == "auto" else self._adapter_namespace
@@ -108,6 +111,9 @@ class SnowLumaSttClient:
         parsed_id = self._normalize_message_id(message_id)
         if parsed_id is None:
             return TranscriptionResult.fail("invalid_message_id", 1)
+
+        if self._initial_delay > 0:
+            await asyncio.sleep(self._initial_delay)
 
         last_error_type = "empty_text"
         for attempt in range(1, self._max_retries + 1):

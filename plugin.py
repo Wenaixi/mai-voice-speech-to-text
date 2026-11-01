@@ -74,6 +74,7 @@ class VoiceSttPlugin(MaiBotPlugin):
                 timeout=self.config.stt.timeout_seconds,
                 max_retries=self.config.stt.max_retries,
                 retry_interval=self.config.stt.retry_interval,
+                initial_delay=getattr(self.config.stt, "initial_delay", 1.2),
                 adapter_namespace=self.config.stt.adapter_namespace,
             )
         else:
@@ -112,7 +113,7 @@ class VoiceSttPlugin(MaiBotPlugin):
         description="将入站语音消息段转录为文字",
         mode=HookMode.BLOCKING,
         order=HookOrder.EARLY,
-        timeout_ms=30000,
+        timeout_ms=35000,
         error_policy=ErrorPolicy.SKIP,
     )
     async def transcribe_voice_segments(

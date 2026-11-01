@@ -35,6 +35,7 @@ class TestConfigModule(unittest.TestCase):
 
     def test_fields_exist(self):
         self.assertIn("timeout_seconds", config_module.SttConfig.__annotations__)
+        self.assertIn("initial_delay", config_module.SttConfig.__annotations__)
         self.assertIn("max_retries", config_module.SttConfig.__annotations__)
         self.assertIn("retry_interval", config_module.SttConfig.__annotations__)
         self.assertIn("adapter_namespace", config_module.SttConfig.__annotations__)

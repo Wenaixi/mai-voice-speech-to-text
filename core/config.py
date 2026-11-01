@@ -30,9 +30,14 @@ class SttConfig(PluginConfigBase):
     __ui_order__ = 10
 
     timeout_seconds: int = Field(
-        default=15,
-        description="单次语音识别总超时时间（秒）",
-        json_schema_extra={"placeholder": "15", "group": "stt"},
+        default=25,
+        description="单次语音识别总超时时间（秒，建议设为 25 秒以匹配底层 20 秒转写推送窗口）",
+        json_schema_extra={"placeholder": "25", "group": "stt"},
+    )
+    initial_delay: float = Field(
+        default=1.2,
+        description="语音接收后的首枪缓冲等待时间（秒），给 QQ 落地与腾讯云端留出转录窗口",
+        json_schema_extra={"placeholder": "1.2", "group": "stt"},
     )
     max_retries: int = Field(
         default=3,
